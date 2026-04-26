@@ -1,57 +1,105 @@
-import { getDueQuestions } from "./spacedRepetition";
+export const getWeakQuestions = (questionSet, answers) => {
+  return questionSet.filter((q) => {
+    // unanswered = weak
+    const ans = answers[q.id];
 
-export const getWeakQuestions = (questions) => {
-  const stats = JSON.parse(localStorage.getItem("questionStats") || "{}");
+    if (ans === undefined) return true;
 
-  return questions.filter((q) => {
+    // MCQ
+    if (q.type === "mcq") return ans !== q.correct;
+
+    // NUMERIC
+    if (q.type === "numeric") {
+      return Math.abs(ans - q.answer) > (q.tolerance || 0);
+    }
+
+    // MULTI
+    if (q.type === "multi") {
+      const user = ans || [];
+      return !(
+        user.length === q.correct.length &&
+        user.every((v) => q.correct.includes(v))
+      );
+    }
+
+    // TEXT
+    if (q.type === "text") {
+      return ans?.toLowerCase().trim() !== q.answer.toLowerCase().trim();
+    }
+
+    // MATCH
+    if (q.type === "match") {
+      return !q.pairs.every((pair, i) => ans?.[i] === pair.right);
+    }
+
+    // CASE
     if (q.type === "case") {
       return q.questions.some((sub) => {
         const key = `${q.id}_${sub.subId}`;
-        const stat = stats[key];
+        const subAns = answers[key];
 
-        if (!stat) return true;
+        if (subAns === undefined) return true;
 
-        const total = stat.correct + stat.wrong;
-        const accuracy = total > 0 ? stat.correct / total : 0;
+        if (sub.type === "mcq") return subAns !== sub.correct;
 
-        return accuracy < 0.6;
+        if (sub.type === "numeric") {
+          return Math.abs(subAns - sub.answer) > (sub.tolerance || 0);
+        }
+
+        return false;
       });
     }
 
-    const stat = stats[q.id];
-
-    if (!stat) return true;
-
-    const total = stat.correct + stat.wrong;
-    const accuracy = total > 0 ? stat.correct / total : 0;
-
-    return accuracy < 0.6;
+    return false;
   });
 };
 
-export const getSmartWeakQuestions = (questions) => {
-  const weak = getWeakQuestions(questions);
-  const due = getDueQuestions(questions);
+export const getSmartWeakQuestions = (questionSet, answers) => {
+  return questionSet.filter((q) => {
+    const ans = answers[q.id];
 
-  const map = new Map();
+    // prioritize wrong but answered
+    if (ans === undefined) return false;
 
-  // Weak first
-  weak.forEach((q) => map.set(q.id, q));
+    if (q.type === "mcq") return ans !== q.correct;
 
-  // Then due
-  due.forEach((q) => {
-    if (!map.has(q.id)) {
-      map.set(q.id, q);
+    if (q.type === "numeric") {
+      return Math.abs(ans - q.answer) > (q.tolerance || 0);
     }
-  });
 
-  return Array.from(map.values()).sort((a, b) => {
-    const isWeakA = weak.some((q) => q.id === a.id);
-    const isWeakB = weak.some((q) => q.id === b.id);
+    if (q.type === "multi") {
+      const user = ans || [];
+      return !(
+        user.length === q.correct.length &&
+        user.every((v) => q.correct.includes(v))
+      );
+    }
 
-    if (isWeakA && !isWeakB) return -1;
-    if (!isWeakA && isWeakB) return 1;
+    if (q.type === "text") {
+      return ans?.toLowerCase().trim() !== q.answer.toLowerCase().trim();
+    }
 
-    return 0;
+    if (q.type === "match") {
+      return !q.pairs.every((pair, i) => ans?.[i] === pair.right);
+    }
+
+    if (q.type === "case") {
+      return q.questions.some((sub) => {
+        const key = `${q.id}_${sub.subId}`;
+        const subAns = answers[key];
+
+        if (subAns === undefined) return false;
+
+        if (sub.type === "mcq") return subAns !== sub.correct;
+
+        if (sub.type === "numeric") {
+          return Math.abs(subAns - sub.answer) > (sub.tolerance || 0);
+        }
+
+        return false;
+      });
+    }
+
+    return false;
   });
 };

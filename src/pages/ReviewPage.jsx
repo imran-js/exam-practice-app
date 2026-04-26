@@ -1,10 +1,9 @@
-import { getSmartRetryQuestions } from "../logic/reviewLogic";
-import { updateSR } from "../logic/spacedRepetition";
+import { checkAnswer } from "../core/engine";
 
 export default function ReviewPage({
   questionSet,
   answers,
-  calculateScore,
+
   resetExam,
   setActiveQuestions,
   updateState,
@@ -15,84 +14,15 @@ export default function ReviewPage({
   startSmartWeakStudy,
   startDifficultyStudy,
   onBack,
+  score,
+  wrongQuestions,
 }) {
-  const score = calculateScore();
-
-  // ==============================
-  // 🧠 CHECK ANSWER
-  // ==============================
-  const checkAnswer = (q, answers) => {
-    if (q.type === "case") {
-      let correct = 0;
-      let total = 0;
-
-      q.questions.forEach((sub) => {
-        const key = `${q.id}_${sub.subId}`;
-        const ans = answers[key];
-
-        if (ans === undefined) return;
-
-        total++;
-
-        if (sub.type === "mcq" && ans === sub.correct) correct++;
-
-        if (
-          sub.type === "numeric" &&
-          Math.abs(ans - sub.answer) <= (sub.tolerance || 0)
-        ) {
-          correct++;
-        }
-      });
-      updateSR(q.id, updateSR.isCorrect);
-
-      return {
-        isCorrect: correct === total && total > 0,
-        partial: correct > 0 && correct < total,
-      };
-    }
-
-    const ans = answers[q.id];
-
-    if (ans === undefined) return { isCorrect: false };
-
-    if (q.type === "mcq") return { isCorrect: ans === q.correct };
-
-    if (q.type === "numeric") {
-      return {
-        isCorrect: Math.abs(ans - q.answer) <= (q.tolerance || 0),
-      };
-    }
-
-    if (q.type === "multi") {
-      const user = (ans || []).map(Number);
-      const correct = q.correct.map(Number);
-
-      if (user.length !== correct.length) return { isCorrect: false };
-
-      return {
-        isCorrect: correct.every((c) => user.includes(c)),
-      };
-    }
-
-    if (q.type === "text") {
-      return {
-        isCorrect: ans?.toLowerCase().trim() === q.answer.toLowerCase().trim(),
-      };
-    }
-
-    if (q.type === "match") {
-      return {
-        isCorrect: q.pairs.every((pair, i) => ans?.[i] === pair.right),
-      };
-    }
-
-    return { isCorrect: false };
-  };
-
   return (
     <div className="min-h-screen bg-gray-100 py-10">
       <div className="max-w-4xl mx-auto px-4">
-        <h1 className="text-2xl font-bold mb-6">Score: {score}</h1>
+        <h1 className="text-2xl font-bold mb-6">
+          Score: {score} / {questionSet.length}
+        </h1>
 
         {/* LEGEND */}
         <div className="text-sm mb-6">🟢 Correct | 🔴 Wrong | 🟡 Missed</div>
@@ -101,6 +31,7 @@ export default function ReviewPage({
         {questionSet.map((q, index) => {
           const qNum = index + 1;
           const result = checkAnswer(q, answers);
+          // updateSR(q.id, updateSR.isCorrect);
           const isCorrect = result.isCorrect;
           const isPartial = result.partial;
           const ans = answers[q.id];
@@ -208,14 +139,13 @@ export default function ReviewPage({
 
           <button
             onClick={() => {
-              const wrong = getSmartRetryQuestions(questionSet, answers);
+              if (!wrongQuestions || wrongQuestions.length === 0)
+                if (wrongQuestions.length === 0) {
+                  alert("Perfect score 😄 Nothing to retry!");
+                  return;
+                }
 
-              if (wrong.length === 0) {
-                alert("Perfect score 😄 Nothing to retry!");
-                return;
-              }
-
-              setActiveQuestions(wrong);
+              setActiveQuestions(wrongQuestions);
 
               setReviewMode(false);
               updateState({

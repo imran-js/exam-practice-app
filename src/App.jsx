@@ -4,16 +4,20 @@ import { loadExamState } from "./services/storage";
 import AnalysisPage from "./pages/AnalysisPage";
 import ReviewPage from "./pages/ReviewPage";
 import ExamPage from "./pages/ExamPage";
-import { calculateScore, analyzePerformance } from "./logic/examLogic";
+import {
+  calculateScore,
+  analyzePerformance,
+  getWrongQuestions,
+} from "./core/engine";
 import { questions } from "./data/questions";
-import { getWrongQuestions } from "./logic/reviewLogic";
 import { getWeakQuestions } from "./logic/studyMode";
 import { updatePerformance } from "./logic/performanceTracker";
 import ImportQuestions from "./components/ImportQuestions";
-import { getDueQuestions } from "./logic/spacedRepetition";
-import { getSmartWeakQuestions } from "./logic/studyMode";
-import { getDifficulty } from "./logic/difficulty";
 import Dashboard from "./pages/Dashboard";
+import { updateSR } from "./logic/spacedRepetition";
+import { checkAnswer } from "./core/engine";
+import { createStudyActions } from "./core/studyEngine";
+import { getStats } from "./core/engine";
 
 export default function App() {
   const { state, updateState, clearExamState } = useExamState();
@@ -45,6 +49,19 @@ export default function App() {
   const questionSet = activeQuestions || baseQuestions;
   const totalQuestions = questionSet.length;
   const currentQ = questionSet[currentQuestion - 1];
+  const {
+    startWeakStudy,
+    startSmartWeakStudy,
+    startSpacedStudy,
+    startDifficultyStudy,
+  } = createStudyActions({
+    questionSet,
+    baseQuestions,
+    answers,
+    setActiveQuestions,
+    updateState,
+    setReviewMode,
+  });
 
   // ==============================
   // 🧠 PERFORMANCE SAVE (FIXED)
@@ -52,6 +69,12 @@ export default function App() {
   useEffect(() => {
     if (isSubmitted && reviewMode && mode === "exam") {
       updatePerformance(questionSet, answers);
+
+      // ✅ SAFE PLACE
+      questionSet.forEach((q) => {
+        const result = checkAnswer(q, answers);
+        updateSR(q.id, result.isCorrect);
+      });
     }
   }, [isSubmitted, reviewMode, mode]);
 
@@ -105,90 +128,17 @@ export default function App() {
     setMode("exam"); // ✅ FIXED
     setShowResume(false);
   };
-  const startSpacedStudy = () => {
-    const due = getDueQuestions(questions);
 
-    if (due.length === 0) {
-      alert("🔥 Nothing due — you're on track!");
-      return;
-    }
-
-    setActiveQuestions(due);
-
-    updateState({
-      currentQuestion: 1,
-      answers: {},
-      flagged: [],
-      isSubmitted: false,
-    });
-
-    setReviewMode(false);
-  };
-
-  const startSmartWeakStudy = () => {
-    const smart = getSmartWeakQuestions(questionSet, answers);
-
-    if (smart.length === 0) {
-      alert("🔥 Nothing to study — you're doing great!");
-      return;
-    }
-
-    setActiveQuestions(smart);
-
-    updateState({
-      currentQuestion: 1,
-      answers: {},
-      flagged: [],
-      isSubmitted: false,
-    });
-
-    setReviewMode(false);
-  };
-  const startWeakStudy = () => {
-    const weak = getWeakQuestions(questionSet);
-
-    if (weak.length === 0) {
-      alert("🔥 You’ve mastered everything!");
-      return;
-    }
-
-    setActiveQuestions(weak);
-
-    updateState({
-      currentQuestion: 1,
-      answers: {},
-      flagged: [],
-      isSubmitted: false,
-    });
-
-    setReviewMode(false);
-  };
-
-  const startDifficultyStudy = (level) => {
-    const filtered = questionSet.filter((q) => getDifficulty(q.id) === level);
-
-    if (filtered.length === 0) {
-      alert(`No ${level} questions found`);
-      return;
-    }
-
-    setActiveQuestions(filtered);
-
-    updateState({
-      currentQuestion: 1,
-      answers: {},
-      flagged: [],
-      isSubmitted: false,
-    });
-
-    setReviewMode(false);
-  };
+  //   startWeakStudy
+  // startSmartWeakStudy
+  // startSpacedStudy
+  // startDifficultyStudy
   if (showDashboard) {
     return (
       <Dashboard
         onBack={() => setShowDashboard(false)}
         onPracticeTopic={(topic) => {
-          const filtered = questions.filter((q) => q.topic === topic);
+          const filtered = baseQuestions.filter((q) => q.topic === topic);
 
           setActiveQuestions(filtered);
 
@@ -250,12 +200,15 @@ export default function App() {
   // 📊 REVIEW PAGE
   // ==============================
   if (isSubmitted && reviewMode && !showAnalysis) {
+    const score = calculateScore(questionSet, answers);
+    const wrongQuestions = getWrongQuestions(questionSet, answers);
+
     return (
       <ReviewPage
         questionSet={questionSet}
         answers={answers}
-        calculateScore={() => calculateScore(questionSet, answers)}
-        getWrongQuestions={() => getWrongQuestions(questionSet, answers)}
+        score={score} // ✅ NEW
+        wrongQuestions={wrongQuestions} // ✅ NEW
         resetExam={resetExam}
         setActiveQuestions={setActiveQuestions}
         updateState={updateState}
@@ -269,46 +222,8 @@ export default function App() {
     );
   }
 
-  // ==============================
-  // 📊 SUMMARY
-  // ==============================
-  const getStats = () => {
-    let answered = 0;
-
-    questionSet.forEach((q) => {
-      if (q.type === "case") {
-        q.questions.forEach((sub) => {
-          const key = `${q.id}_${sub.subId}`;
-          if (answers[key] !== undefined) answered++;
-        });
-        return;
-      }
-
-      const ans = answers[q.id];
-
-      if (
-        ans !== undefined &&
-        !(Array.isArray(ans) && ans.length === 0) &&
-        !(
-          typeof ans === "object" &&
-          !Array.isArray(ans) &&
-          Object.keys(ans).length === 0
-        )
-      ) {
-        answered++;
-      }
-    });
-
-    return {
-      answered,
-      unanswered: questionSet.length - answered,
-      flagged: flagged.length,
-    };
-  };
-
   if (showSummary) {
-    const stats = getStats();
-
+    const stats = getStats(questionSet, answers, flagged);
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
         <div className="bg-white p-8 rounded shadow text-center w-96">

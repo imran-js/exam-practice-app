@@ -8,36 +8,22 @@ export const saveSR = (data) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 };
 
-export const updateSR = (questionId, isCorrect) => {
-  console.log("SR UPDATE:", questionId, {
-    isCorrect,
-    interval: q.interval,
-    ease: q.ease,
-    due: new Date(q.due).toLocaleString(),
-  });
-  const data = loadSR();
+export const updateSR = (id, isCorrect) => {
+  const data = JSON.parse(localStorage.getItem("spacedData") || "{}");
 
-  const now = Date.now();
-
-  const q = data[questionId] || {
-    ease: 2.5,
-    interval: 1,
-    due: now,
-  };
-
-  if (isCorrect) {
-    q.interval = Math.round(q.interval * q.ease);
-    q.ease = Math.min(q.ease + 0.1, 3);
-  } else {
-    q.interval = 1;
-    q.ease = Math.max(q.ease - 0.2, 1.3);
+  if (!data[id]) {
+    data[id] = { interval: 1, last: Date.now() };
   }
 
-  q.due = now + q.interval * 24 * 60 * 60 * 1000;
+  if (isCorrect) {
+    data[id].interval = Math.min(data[id].interval * 2, 30);
+  } else {
+    data[id].interval = 1;
+  }
 
-  data[questionId] = q;
+  data[id].last = Date.now();
 
-  saveSR(data);
+  localStorage.setItem("spacedData", JSON.stringify(data));
 };
 
 export const getDueQuestions = (questions) => {
